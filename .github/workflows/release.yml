@@ -15,25 +15,45 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
+  #* Static Analysis ==============================
+  # Lint, typecheck, formatting - fast checks that don't need build
+  lint:
     runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/pmndrs/playwright:drei
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - run: corepack enable
       - uses: actions/setup-node@v4
         with:
+          node-version-file: '.node-version'
+          cache: 'yarn'
+      - run: yarn install
+      - run: yarn test:lint
+
+  #* Build & Test ==============================
+  # Build the package and run all tests
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: corepack enable
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: '.node-version'
           cache: 'yarn'
       - run: yarn install
       - run: yarn build
-      - run: yarn test
+      
+      # Bundle verification - ensures THREE imports are correct per entry point
+      - name: Verify bundle structure
+        run: yarn test:bundles
+      
+      # Canary tests - verifies exports are importable
+      - name: Canary import tests
+        run: yarn test:canary
 
+  #* Build Storybook & Release ==============================
   build-and-release:
-    needs: test
+    needs: [lint, test]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -45,7 +65,8 @@ jobs:
       - run: yarn install
       - run: yarn build
       - run: yarn build-storybook
-      # semantic-release skips not configured branches(see: release.config.js) or pull-requests
+      
+      # semantic-release skips not configured branches (see: release.config.js) or pull-requests
       - run: yarn release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
